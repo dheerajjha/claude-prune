@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  # Re-publish an existing tag to PyPI: gh workflow run release.yml --ref v0.1.0
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: The tag must match the version in the code and in pyproject.toml
+        run: |
+          version="$(python claude_prune.py --version | cut -d' ' -f2)"
+          test "v$version" = "$GITHUB_REF_NAME"
+          grep -qx "version = \"$version\"" pyproject.toml
+      - run: python -m unittest discover -s tests
+      - run: python -m pip install build && python -m build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  github:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: Create the release, with the single-file script attached for install.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          awk -v v="${GITHUB_REF_NAME#v}" '$1 == "##" { if (on) exit; on = ($2 == v); next } on' CHANGELOG.md > notes.md
+          test -s notes.md
+          gh release create "$GITHUB_REF_NAME" claude_prune.py dist/* --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
+
+  pypi:
+    needs: build
+    # Trusted publishing (no token). Off until the PyPI project's publisher is set up.
+    if: vars.PYPI_PUBLISHING == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

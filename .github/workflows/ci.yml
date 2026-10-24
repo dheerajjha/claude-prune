@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: unit (${{ matrix.os }}, Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.9" }
+          - { os: ubuntu-latest, python: "3.14" }
+          - { os: macos-latest, python: "3.14" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s tests -v
+
+  e2e:
+    name: end to end (macOS, system Python)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      # The python3 that ships with the Xcode command line tools is the one users have.
+      - name: Prune a fake Claude Code install, for real
+        env:
+          CLAUDE_PRUNE_E2E: "1"
+        run: |
+          /usr/bin/python3 --version
+          /usr/bin/python3 -m unittest discover -s tests -v
+
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: sh -n install.sh
